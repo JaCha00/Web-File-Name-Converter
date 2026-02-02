@@ -16,6 +16,12 @@ export default defineConfig({
     target: "es2015",
     modulePreload: false,
     cssCodeSplit: false,
+    rollupOptions: {
+      output: {
+        format: "iife",
+        inlineDynamicImports: true,
+      },
+    },
   },
   resolve: {
     alias: {
