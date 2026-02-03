@@ -1,4 +1,4 @@
-# Web File Name Translator
+# Web File Name Converter
 
 이미지 메타데이터 기반 파일명 일괄 변환기
 
