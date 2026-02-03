@@ -7,8 +7,8 @@ const distPath = join(__dirname, '..', 'dist', 'index.html');
 
 let html = readFileSync(distPath, 'utf-8');
 
-// Remove type="module" and crossorigin to allow file:// protocol
-html = html.replace(/<script type="module" crossorigin>/g, '<script>');
+// Remove type="module" and crossorigin, add defer to allow file:// protocol
+html = html.replace(/<script type="module" crossorigin>/g, '<script defer>');
 
 writeFileSync(distPath, html, 'utf-8');
 
