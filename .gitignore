@@ -31,3 +31,4 @@ yarn-error.log*
 
 # Tauri
 src-tauri/target/
+/Web-File-Name-Converter
