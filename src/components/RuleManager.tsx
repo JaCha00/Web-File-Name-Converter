@@ -25,6 +25,9 @@ export function RuleManager({
   const [editFileName, setEditFileName] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [showPartialMatchSettings, setShowPartialMatchSettings] = useState(false);
+  const [newCategory, setNewCategory] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 파일명 정규화: 띄어쓰기 → _, 위험 문자 제거
@@ -201,17 +204,20 @@ export function RuleManager({
       keyword: trimmedKeyword,
       newFileName: sanitizedFileName,
       enabled: true,
+      category: newCategory.trim() || undefined,
     };
 
     onRulesChange([...rules, newRule]);
     setKeyword('');
     setNewFileName('');
+    setNewCategory('');
   };
 
   const startEdit = (rule: KeywordRule) => {
     setEditingId(rule.id);
     setEditKeyword(rule.keyword);
     setEditFileName(rule.newFileName);
+    setEditCategory(rule.category || '');
   };
 
   const saveEdit = () => {
@@ -231,7 +237,7 @@ export function RuleManager({
     onRulesChange(
       rules.map((r) =>
         r.id === editingId
-          ? { ...r, keyword: trimmedKeyword, newFileName: sanitizedFileName }
+          ? { ...r, keyword: trimmedKeyword, newFileName: sanitizedFileName, category: editCategory.trim() || undefined }
           : r
       )
     );
@@ -281,16 +287,32 @@ export function RuleManager({
     }
   };
 
-  // 검색 필터링
+  // 고유 카테고리 목록
+  const uniqueCategories = useMemo(() => {
+    const cats = new Set<string>();
+    for (const r of rules) {
+      if (r.category) cats.add(r.category);
+    }
+    return Array.from(cats).sort();
+  }, [rules]);
+
+  // 검색 + 카테고리 필터링
   const filteredRules = useMemo(() => {
-    if (!searchTerm.trim()) return rules;
-    const term = searchTerm.toLowerCase();
-    return rules.filter(
-      (r) =>
-        r.keyword.toLowerCase().includes(term) ||
-        r.newFileName.toLowerCase().includes(term)
-    );
-  }, [rules, searchTerm]);
+    let result = rules;
+    if (categoryFilter) {
+      result = result.filter((r) => r.category === categoryFilter);
+    }
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(
+        (r) =>
+          r.keyword.toLowerCase().includes(term) ||
+          r.newFileName.toLowerCase().includes(term) ||
+          (r.category && r.category.toLowerCase().includes(term))
+      );
+    }
+    return result;
+  }, [rules, searchTerm, categoryFilter]);
 
   const displayRules = showAll ? filteredRules : filteredRules.slice(0, 20);
   const hasMore = filteredRules.length > 20 && !showAll;
@@ -533,6 +555,14 @@ export function RuleManager({
             onKeyDown={handleKeyDown}
             className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
           />
+          <input
+            type="text"
+            placeholder="카테고리"
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="w-24 px-2 py-2 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none"
+          />
           <button
             onClick={addRule}
             disabled={!keyword.trim() || !newFileName.trim()}
@@ -543,16 +573,28 @@ export function RuleManager({
         </div>
       </div>
 
-      {/* 검색 */}
+      {/* 검색 + 카테고리 필터 */}
       {rules.length > 5 && (
-        <div className="mb-3">
+        <div className="mb-3 flex gap-2">
           <input
             type="text"
             placeholder="규칙 검색..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-gray-50"
+            className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent outline-none bg-gray-50"
           />
+          {uniqueCategories.length > 0 && (
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-50 focus:ring-2 focus:ring-purple-500 outline-none"
+            >
+              <option value="">전체 카테고리</option>
+              {uniqueCategories.map((cat) => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          )}
         </div>
       )}
 
@@ -594,6 +636,13 @@ export function RuleManager({
                         value={editFileName}
                         onChange={(e) => setEditFileName(e.target.value)}
                         className="flex-1 px-2 py-1 text-xs border rounded"
+                      />
+                      <input
+                        type="text"
+                        placeholder="카테고리"
+                        value={editCategory}
+                        onChange={(e) => setEditCategory(e.target.value)}
+                        className="w-20 px-2 py-1 text-xs border rounded"
                       />
                       <button
                         onClick={saveEdit}
@@ -649,6 +698,11 @@ export function RuleManager({
                         <span className="text-xs font-mono text-green-700 bg-white/50 px-1.5 py-0.5 rounded border border-green-200">
                           {rule.newFileName}
                         </span>
+                        {rule.category && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">
+                            {rule.category}
+                          </span>
+                        )}
                         {matchCount > 0 && (
                           <span className="text-xs text-green-600 bg-green-100 px-1.5 py-0.5 rounded-full">
                             {matchCount}개 매칭

@@ -97,6 +97,9 @@ export function App() {
     const totalBatches = Math.ceil(totalFiles / batchSize);
 
     try {
+      // Track filename counts across ALL batches to prevent collisions when extracted to same folder
+      const globalFileNameCounts: Record<string, number> = {};
+
       for (let batch = 0; batch < totalBatches; batch++) {
         const start = batch * batchSize;
         const end = Math.min(start + batchSize, totalFiles);
@@ -110,7 +113,6 @@ export function App() {
         });
 
         const zip = new JSZip();
-        const fileNameCounts: Record<string, number> = {};
 
         for (let i = 0; i < batchImages.length; i++) {
           const img = batchImages[i];
@@ -129,14 +131,14 @@ export function App() {
           const nameKey = `${baseName.toLowerCase()}.${ext.toLowerCase()}`; // 대소문자 무시
           
           let finalName: string;
-          if (fileNameCounts[nameKey] === undefined) {
+          if (globalFileNameCounts[nameKey] === undefined) {
             // 첫 번째 파일
-            fileNameCounts[nameKey] = 0;
+            globalFileNameCounts[nameKey] = 0;
             finalName = `${baseName}.${ext}`;
           } else {
             // 중복 파일: _1, _2, _3...
-            fileNameCounts[nameKey]++;
-            finalName = `${baseName}_${fileNameCounts[nameKey]}.${ext}`;
+            globalFileNameCounts[nameKey]++;
+            finalName = `${baseName}_${globalFileNameCounts[nameKey]}.${ext}`;
           }
 
           const arrayBuffer = await img.file.arrayBuffer();
@@ -193,7 +195,31 @@ export function App() {
             logger.error('Download', 'Tauri save failed, falling back to web', err);
             saveAs(content, defaultFileName);
           }
+        } else if ('showSaveFilePicker' in window) {
+          // Use File System Access API for user-chosen save location
+          try {
+            const handle = await (window as unknown as { showSaveFilePicker: (opts: unknown) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
+              suggestedName: defaultFileName,
+              types: [{
+                description: 'ZIP Archive',
+                accept: { 'application/zip': ['.zip'] },
+              }],
+            });
+            const writable = await handle.createWritable();
+            await writable.write(content);
+            await writable.close();
+            logger.info('Download', `Saved via File System Access API`);
+          } catch (err: unknown) {
+            // User cancelled the dialog
+            if (err instanceof Error && err.name === 'AbortError') {
+              logger.info('Download', 'Save cancelled by user');
+            } else {
+              logger.error('Download', 'File System Access API failed, falling back', err);
+              saveAs(content, defaultFileName);
+            }
+          }
         } else {
+          // Fallback for browsers without File System Access API
           saveAs(content, defaultFileName);
         }
 

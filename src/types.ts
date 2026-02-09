@@ -5,6 +5,7 @@ export interface KeywordRule {
   enabled: boolean;
   matchCount?: number; // 매칭된 이미지 수
   partialMatch?: boolean; // 부분 매칭 활성화 여부 (개별 설정)
+  category?: string; // 규칙 카테고리/그룹 (부분 매칭 분류용)
 }
 
 // 부분 매칭 설정
@@ -20,6 +21,7 @@ export interface MatchCandidate {
   matchedField: string;
   matchScore: number; // 일치율 (0.0 ~ 1.0)
   matchedTokens: string[]; // 일치한 토큰들
+  unmatchedTokens: string[]; // 불일치한 토큰들
   totalTokens: number; // 전체 토큰 수
 }
 

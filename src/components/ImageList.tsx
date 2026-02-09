@@ -3,6 +3,14 @@ import { ImageFile, FilterMode, LIMITS, MatchCandidate } from '../types';
 import { cn } from '../utils/cn';
 import { formatFileSize } from '../utils/thumbnail';
 
+type ViewSize = 'compact' | 'normal' | 'large';
+
+const VIEW_SIZE_CLASSES: Record<ViewSize, { img: string; placeholder: string; icon: string }> = {
+  compact:  { img: 'w-10 h-10', placeholder: 'w-10 h-10', icon: 'w-5 h-5' },
+  normal:   { img: 'w-14 h-14', placeholder: 'w-14 h-14', icon: 'w-6 h-6' },
+  large:    { img: 'w-20 h-20', placeholder: 'w-20 h-20', icon: 'w-8 h-8' },
+};
+
 interface ImageListProps {
   images: ImageFile[];
   onRemove: (id: string) => void;
@@ -206,20 +214,70 @@ function MetadataViewer({ metadata, matchedField, matchedKeyword }: {
   );
 }
 
+// 토큰 매칭 시각화 컴포넌트
+function TokenBadges({
+  matchedTokens,
+  unmatchedTokens,
+  compact = false,
+}: {
+  matchedTokens: string[];
+  unmatchedTokens: string[];
+  compact?: boolean;
+}) {
+  if (matchedTokens.length === 0 && unmatchedTokens.length === 0) return null;
+
+  const maxShow = compact ? 3 : Infinity;
+  const allTokens = [
+    ...matchedTokens.map((t) => ({ text: t, matched: true })),
+    ...unmatchedTokens.map((t) => ({ text: t, matched: false })),
+  ];
+  const displayTokens = compact ? allTokens.slice(0, maxShow) : allTokens;
+  const remaining = allTokens.length - displayTokens.length;
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {displayTokens.map((token, i) => (
+        <span
+          key={i}
+          className={cn(
+            'inline-block px-1.5 py-0.5 text-xs rounded-full border',
+            token.matched
+              ? 'bg-green-100 text-green-700 border-green-200'
+              : 'bg-red-50 text-red-500 border-red-200'
+          )}
+          title={token.matched ? '일치' : '불일치'}
+        >
+          {compact && token.text.length > 12 ? token.text.slice(0, 12) + '...' : token.text}
+        </span>
+      ))}
+      {remaining > 0 && (
+        <span className="text-xs text-gray-400 self-center">+{remaining}개</span>
+      )}
+    </div>
+  );
+}
+
 function ImageItem({
   img,
   isSelected,
   onToggleSelect,
   onRemove,
   onSelectMatch,
+  viewSize,
 }: {
   img: ImageFile;
   isSelected: boolean;
   onToggleSelect: () => void;
   onRemove: () => void;
   onSelectMatch: (candidate: MatchCandidate) => void;
+  viewSize: ViewSize;
 }) {
   const [showCandidates, setShowCandidates] = useState(false);
+  const [showTokenDetail, setShowTokenDetail] = useState(false);
+
+  // 현재 매칭의 토큰 정보 조회
+  const currentCandidate = img.candidateMatches?.find(c => c.rule.id === img.matchedRule?.id);
+
   return (
     <div
       className={cn(
@@ -255,11 +313,17 @@ function ImageItem({
         <img
           src={img.thumbnailUrl}
           alt=""
-          className="w-14 h-14 object-cover rounded-lg border border-gray-200 flex-shrink-0"
+          className={cn(
+            VIEW_SIZE_CLASSES[viewSize].img,
+            'object-cover rounded-lg border border-gray-200 flex-shrink-0'
+          )}
         />
       ) : (
-        <div className="w-14 h-14 bg-gray-100 rounded-lg border border-gray-200 flex-shrink-0 flex items-center justify-center">
-          <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className={cn(
+          VIEW_SIZE_CLASSES[viewSize].placeholder,
+          'bg-gray-100 rounded-lg border border-gray-200 flex-shrink-0 flex items-center justify-center'
+        )}>
+          <svg className={cn(VIEW_SIZE_CLASSES[viewSize].icon, 'text-gray-300')} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         </div>
@@ -304,6 +368,36 @@ function ImageItem({
                     </span>
                   )}
                 </div>
+                {/* 토큰 상세 (부분 매칭 시) */}
+                {img.isPartialMatch && currentCandidate && (
+                  <div className="mt-1">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setShowTokenDetail(prev => !prev);
+                      }}
+                      className="text-xs text-orange-600 hover:text-orange-800 flex items-center gap-1 cursor-pointer select-none"
+                    >
+                      <svg
+                        className={cn('w-3 h-3 transition-transform', showTokenDetail && 'rotate-180')}
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                      {currentCandidate.matchedTokens.length}/{currentCandidate.totalTokens} 토큰
+                    </button>
+                    {showTokenDetail && (
+                      <div className="mt-1.5 p-2 bg-white rounded border border-orange-200">
+                        <TokenBadges
+                          matchedTokens={currentCandidate.matchedTokens}
+                          unmatchedTokens={currentCandidate.unmatchedTokens}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* 다중 매칭 후보가 있는 경우 */}
                 {img.candidateMatches && img.candidateMatches.length > 1 && (
                   <div className="mt-1.5">
@@ -353,12 +447,23 @@ function ImageItem({
                                       {candidate.rule.newFileName}
                                     </p>
                                   </div>
-                                  <p className="text-gray-500 mt-0.5">
-                                    {candidate.matchedTokens.length}/{candidate.totalTokens} 토큰 일치
-                                    <span className="text-gray-400 ml-1">
-                                      ({candidate.matchedField})
-                                    </span>
-                                  </p>
+                                  <div className="mt-0.5">
+                                    <div className="flex items-center gap-1 text-gray-500">
+                                      <span className="text-xs">
+                                        {candidate.matchedTokens.length}/{candidate.totalTokens} 토큰
+                                      </span>
+                                      <span className="text-xs text-gray-400">
+                                        ({candidate.matchedField})
+                                      </span>
+                                    </div>
+                                    <div className="mt-1">
+                                      <TokenBadges
+                                        matchedTokens={candidate.matchedTokens}
+                                        unmatchedTokens={candidate.unmatchedTokens}
+                                        compact
+                                      />
+                                    </div>
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 flex-shrink-0">
                                   <span className={cn(
@@ -425,7 +530,19 @@ function ImageItem({
 export function ImageList({ images, onRemove, onRemoveMultiple, filterMode, onFilterChange, onSelectMatch }: ImageListProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewSize, setViewSize] = useState<ViewSize>(() => {
+    try {
+      const saved = localStorage.getItem('image-renamer-view-size');
+      if (saved === 'compact' || saved === 'normal' || saved === 'large') return saved;
+    } catch { /* ignore */ }
+    return 'normal';
+  });
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const changeViewSize = (size: ViewSize) => {
+    setViewSize(size);
+    try { localStorage.setItem('image-renamer-view-size', size); } catch { /* ignore */ }
+  };
 
   // 필터링된 이미지
   const filteredImages = useMemo(() => {
@@ -561,6 +678,25 @@ export function ImageList({ images, onRemove, onRemoveMultiple, filterMode, onFi
           </button>
         </div>
 
+        {/* 썸네일 크기 조절 */}
+        <div className="flex items-center gap-0.5 ml-2">
+          <span className="text-xs text-gray-400 mr-1">크기</span>
+          {([['compact', 'S'], ['normal', 'M'], ['large', 'L']] as [ViewSize, string][]).map(([size, label]) => (
+            <button
+              key={size}
+              onClick={() => changeViewSize(size)}
+              className={cn(
+                'w-6 h-6 text-xs font-medium rounded transition-colors',
+                viewSize === size
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div className="flex-1" />
 
         {/* 선택 도구 */}
@@ -611,6 +747,7 @@ export function ImageList({ images, onRemove, onRemoveMultiple, filterMode, onFi
             onToggleSelect={() => toggleSelect(img.id)}
             onRemove={() => onRemove(img.id)}
             onSelectMatch={(candidate) => onSelectMatch(img.id, candidate)}
+            viewSize={viewSize}
           />
         ))}
       </div>

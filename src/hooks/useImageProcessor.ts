@@ -13,28 +13,50 @@ const tokenizeKeyword = (keyword: string, separator: string): string[] => {
     .filter(token => token.length > 0);
 };
 
-// 부분 매칭 점수 계산
+// 필드 값을 토큰으로 분리 (구분자 + 일반적인 메타데이터 구분자들)
+const tokenizeFieldValue = (fieldValue: string, separator: string): string[] => {
+  // 메인 구분자로 우선 분리, 이후 일반적인 메타데이터 구분자(쉼표, 세미콜론)로도 분리
+  const separators = new Set([separator, ',', ';']);
+  const separatorPattern = [...separators].map(s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return fieldValue
+    .split(new RegExp(separatorPattern))
+    .map(token => token.trim().toLowerCase())
+    .filter(token => token.length > 0);
+};
+
+// 부분 매칭 점수 계산 (토큰 단위 정확도 강화)
 const calculatePartialMatchScore = (
   keyword: string,
   fieldValue: string,
   separator: string
-): { score: number; matchedTokens: string[]; totalTokens: number } => {
-  const tokens = tokenizeKeyword(keyword, separator);
-  if (tokens.length === 0) {
-    return { score: 0, matchedTokens: [], totalTokens: 0 };
+): { score: number; matchedTokens: string[]; unmatchedTokens: string[]; totalTokens: number } => {
+  const keywordTokens = tokenizeKeyword(keyword, separator);
+  if (keywordTokens.length === 0) {
+    return { score: 0, matchedTokens: [], unmatchedTokens: [], totalTokens: 0 };
   }
 
+  const fieldTokens = tokenizeFieldValue(fieldValue, separator);
   const matchedTokens: string[] = [];
-  for (const token of tokens) {
-    if (fieldValue.includes(token)) {
-      matchedTokens.push(token);
+  const unmatchedTokens: string[] = [];
+
+  for (const kToken of keywordTokens) {
+    const kLower = kToken.toLowerCase();
+    // 토큰 단위 매칭: 필드의 토큰과 정확히 일치하거나, 토큰이 필드 토큰에 포함
+    const isMatched = fieldTokens.some(fToken =>
+      fToken === kLower || fToken.includes(kLower) || kLower.includes(fToken)
+    );
+    if (isMatched) {
+      matchedTokens.push(kToken);
+    } else {
+      unmatchedTokens.push(kToken);
     }
   }
 
   return {
-    score: matchedTokens.length / tokens.length,
+    score: matchedTokens.length / keywordTokens.length,
     matchedTokens,
-    totalTokens: tokens.length,
+    unmatchedTokens,
+    totalTokens: keywordTokens.length,
   };
 };
 
@@ -245,7 +267,7 @@ export function useImageProcessor() {
             if (!isPartialMatchEnabled) continue;
 
             for (const [fieldName, fieldValue] of metadataEntries) {
-              const { score, matchedTokens, totalTokens } = calculatePartialMatchScore(
+              const { score, matchedTokens, unmatchedTokens, totalTokens } = calculatePartialMatchScore(
                 rule.keyword,
                 fieldValue,
                 separator
@@ -258,6 +280,7 @@ export function useImageProcessor() {
                   matchedField: fieldName,
                   matchScore: score,
                   matchedTokens,
+                  unmatchedTokens,
                   totalTokens,
                 });
               }
@@ -272,7 +295,7 @@ export function useImageProcessor() {
             if (!rule.partialMatch) continue;
 
             for (const [fieldName, fieldValue] of metadataEntries) {
-              const { score, matchedTokens, totalTokens } = calculatePartialMatchScore(
+              const { score, matchedTokens, unmatchedTokens, totalTokens } = calculatePartialMatchScore(
                 rule.keyword,
                 fieldValue,
                 separator
@@ -284,6 +307,7 @@ export function useImageProcessor() {
                   matchedField: fieldName,
                   matchScore: score,
                   matchedTokens,
+                  unmatchedTokens,
                   totalTokens,
                 });
               }
@@ -293,17 +317,35 @@ export function useImageProcessor() {
 
         // 부분 매칭 후보가 있는 경우
         if (allCandidates.length > 0) {
-          // 점수 순으로 정렬 (높은 점수 우선)
-          allCandidates.sort((a, b) => b.matchScore - a.matchScore);
-
           // 동일한 규칙의 중복 제거 (가장 높은 점수만 유지)
           const uniqueCandidates: MatchCandidate[] = [];
           const seenRuleIds = new Set<string>();
+
+          // 먼저 점수순 정렬
+          allCandidates.sort((a, b) => b.matchScore - a.matchScore);
+
           for (const candidate of allCandidates) {
             if (!seenRuleIds.has(candidate.rule.id)) {
               seenRuleIds.add(candidate.rule.id);
               uniqueCandidates.push(candidate);
             }
+          }
+
+          // 카테고리 기반 분류: 동일 카테고리 내에서 점수 비교 강화
+          // 같은 카테고리의 후보들끼리 그룹화하여 가장 적합한 매칭 선택
+          if (uniqueCandidates.length > 1) {
+            uniqueCandidates.sort((a, b) => {
+              // 1차: 점수순
+              const scoreDiff = b.matchScore - a.matchScore;
+              if (Math.abs(scoreDiff) > 0.05) return scoreDiff;
+              // 2차: 동일 점수대이면 매칭된 토큰 수가 많은 쪽 우선
+              const tokenDiff = b.matchedTokens.length - a.matchedTokens.length;
+              if (tokenDiff !== 0) return tokenDiff;
+              // 3차: 카테고리가 있는 규칙 우선
+              const aCat = a.rule.category ? 1 : 0;
+              const bCat = b.rule.category ? 1 : 0;
+              return bCat - aCat;
+            });
           }
 
           // 가장 높은 점수의 후보를 기본 매칭으로 설정
@@ -323,7 +365,7 @@ export function useImageProcessor() {
             matchedField: bestMatch.matchedField,
             newFileName: `${baseName}.${ext}`,
             matchScore: bestMatch.matchScore,
-            candidateMatches: uniqueCandidates.length > 1 ? uniqueCandidates : undefined,
+            candidateMatches: uniqueCandidates,
             isPartialMatch: true,
           };
         }
