@@ -365,7 +365,7 @@ export function useImageProcessor() {
             matchedField: bestMatch.matchedField,
             newFileName: `${baseName}.${ext}`,
             matchScore: bestMatch.matchScore,
-            candidateMatches: uniqueCandidates.length > 1 ? uniqueCandidates : undefined,
+            candidateMatches: uniqueCandidates,
             isPartialMatch: true,
           };
         }
