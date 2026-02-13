@@ -2,6 +2,8 @@ import { useState, useMemo, useRef } from 'react';
 import { KeywordRule, LIMITS, PartialMatchSettings } from '../types';
 import { cn } from '../utils/cn';
 
+const isTauri = () => typeof window !== 'undefined' && '__TAURI__' in window;
+
 interface RuleManagerProps {
   rules: KeywordRule[];
   onRulesChange: (rules: KeywordRule[]) => void;
@@ -52,6 +54,7 @@ export function RuleManager({
         const newRules: KeywordRule[] = [];
         
         let currentFileName: string | null = null;
+        let currentCategory: string | undefined = undefined;
         let currentKeywordParts: string[] = [];
         
         const saveCurrentRule = () => {
@@ -76,6 +79,7 @@ export function RuleManager({
                   keyword,
                   newFileName: sanitizedFileName,
                   enabled: true,
+                  category: currentCategory,
                 });
               }
             }
@@ -90,8 +94,16 @@ export function RuleManager({
             // 이전 규칙 저장
             saveCurrentRule();
             
-            // 새 파일명 설정 (# 제거)
-            currentFileName = trimmedLine.slice(1).trim();
+            // 새 파일명 설정 (# 제거, |카테고리 파싱)
+            const headerContent = trimmedLine.slice(1).trim();
+            const pipeIndex = headerContent.indexOf('|');
+            if (pipeIndex >= 0) {
+              currentFileName = headerContent.slice(0, pipeIndex).trim();
+              currentCategory = headerContent.slice(pipeIndex + 1).trim() || undefined;
+            } else {
+              currentFileName = headerContent;
+              currentCategory = undefined;
+            }
             currentKeywordParts = [];
           } else if (currentFileName && trimmedLine) {
             // 빈 줄이 아닌 경우만 추가 (줄바꿈 무시)
@@ -133,45 +145,88 @@ export function RuleManager({
   };
 
   // TXT 파일로 규칙 Export
-  const handleExport = () => {
+  const handleExport = async () => {
     try {
       if (rules.length === 0) {
         alert('내보낼 규칙이 없습니다.');
         return;
       }
-      
+
       let content = '';
-      
+
       for (const rule of rules) {
-        content += `#${rule.newFileName}\n`;
+        // 카테고리가 있으면 #파일명|카테고리 형식, 없으면 #파일명
+        if (rule.category) {
+          content += `#${rule.newFileName}|${rule.category}\n`;
+        } else {
+          content += `#${rule.newFileName}\n`;
+        }
         content += `${rule.keyword}\n\n`;
       }
-      
+
       // BOM 추가하여 한글 인코딩 보장
       const BOM = '\uFEFF';
       const blob = new Blob([BOM + content.trim()], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      
-      // 다운로드 링크 생성
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `keyword_rules_${new Date().toISOString().slice(0, 10)}.txt`;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      
-      // 클릭 실행
-      a.click();
-      
-      // 정리 (약간의 딜레이 후)
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 100);
-      
+      const defaultFileName = `keyword_rules_${new Date().toISOString().slice(0, 10)}.txt`;
+
+      if (isTauri()) {
+        try {
+          const { save } = await import('@tauri-apps/plugin-dialog');
+          const { writeFile } = await import('@tauri-apps/plugin-fs');
+          const savePath = await save({
+            defaultPath: defaultFileName,
+            filters: [{ name: 'Text File', extensions: ['txt'] }],
+          });
+          if (savePath) {
+            const arrayBuffer = await blob.arrayBuffer();
+            await writeFile(savePath, new Uint8Array(arrayBuffer));
+          }
+        } catch (err) {
+          console.error('Tauri export failed, falling back', err);
+          saveWithAnchor(blob, defaultFileName);
+        }
+      } else if ('showSaveFilePicker' in window) {
+        try {
+          const handle = await (window as unknown as { showSaveFilePicker: (opts: unknown) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
+            suggestedName: defaultFileName,
+            types: [{
+              description: 'Text File',
+              accept: { 'text/plain': ['.txt'] },
+            }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+        } catch (err: unknown) {
+          if (err instanceof Error && err.name === 'AbortError') {
+            // 사용자가 취소함
+          } else {
+            console.error('showSaveFilePicker failed, falling back', err);
+            saveWithAnchor(blob, defaultFileName);
+          }
+        }
+      } else {
+        saveWithAnchor(blob, defaultFileName);
+      }
     } catch (error) {
       console.error('Export error:', error);
       alert('내보내기 중 오류가 발생했습니다: ' + (error as Error).message);
     }
+  };
+
+  // Fallback 다운로드: <a> 태그 click
+  const saveWithAnchor = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
   };
 
   const addRule = () => {
