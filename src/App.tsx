@@ -195,8 +195,8 @@ export function App() {
             logger.error('Download', 'Tauri save failed, falling back to web', err);
             saveAs(content, defaultFileName);
           }
-        } else if ('showSaveFilePicker' in window) {
-          // Use File System Access API for user-chosen save location
+        } else if (window.isSecureContext && 'showSaveFilePicker' in window) {
+          // Use File System Access API for user-chosen save location (requires secure context)
           try {
             const handle = await (window as unknown as { showSaveFilePicker: (opts: unknown) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
               suggestedName: defaultFileName,
@@ -356,6 +356,12 @@ export function App() {
                       </>
                     )}
                   </button>
+
+                  {!window.isSecureContext && (
+                    <p className="text-xs text-gray-400 text-center">
+                      저장 위치를 변경하려면 Chrome 설정 &gt; 다운로드 &gt; &apos;다운로드 전에 각 파일의 저장 위치 확인&apos;을 켜세요
+                    </p>
+                  )}
 
                   <div className="flex gap-2">
                     <button

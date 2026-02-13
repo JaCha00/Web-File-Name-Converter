@@ -185,7 +185,7 @@ export function RuleManager({
           console.error('Tauri export failed, falling back', err);
           saveWithAnchor(blob, defaultFileName);
         }
-      } else if ('showSaveFilePicker' in window) {
+      } else if (window.isSecureContext && 'showSaveFilePicker' in window) {
         try {
           const handle = await (window as unknown as { showSaveFilePicker: (opts: unknown) => Promise<FileSystemFileHandle> }).showSaveFilePicker({
             suggestedName: defaultFileName,
